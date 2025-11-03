@@ -43,37 +43,101 @@ local function findPlayerPlot(plotsFolder)
         if plot:IsA("Model") then
             print("  🔎 Verificando model:", plot.Name)
             
-            -- Procura a PART PlotSign dentro do model
+            -- MÉTODO 1: Procura PlotSign direto
             local plotSign = plot:FindFirstChild("PlotSign")
-            if plotSign and plotSign:IsA("BasePart") then
-                print("    ✅ PlotSign encontrado (Part)")
-                
-                -- Procura o SurfaceGui dentro da Part
+            
+            -- MÉTODO 2: Se não achar, procura em todos os descendentes
+            if not plotSign then
+                for _, desc in ipairs(plot:GetDescendants()) do
+                    if desc.Name == "PlotSign" and desc:IsA("BasePart") then
+                        plotSign = desc
+                        print("    ✅ PlotSign encontrado via GetDescendants()")
+                        break
+                    end
+                end
+            else
+                print("    ✅ PlotSign encontrado (FindFirstChild)")
+            end
+            
+            if plotSign then
+                -- Procura SurfaceGui de várias formas
                 local surfaceGui = plotSign:FindFirstChild("SurfaceGui")
-                if surfaceGui then
+                
+                -- Se não achar, procura em todos os filhos
+                if not surfaceGui then
+                    for _, child in ipairs(plotSign:GetChildren()) do
+                        if child:IsA("SurfaceGui") then
+                            surfaceGui = child
+                            print("      ✅ SurfaceGui encontrado (qualquer)")
+                            break
+                        end
+                    end
+                else
                     print("      ✅ SurfaceGui encontrado")
-                    
-                    -- Procura o Frame dentro do SurfaceGui
+                end
+                
+                if surfaceGui then
+                    -- Procura Frame
                     local frame = surfaceGui:FindFirstChild("Frame")
-                    if frame then
+                    
+                    -- Se não achar Frame, procura qualquer GUI object
+                    if not frame then
+                        for _, child in ipairs(surfaceGui:GetChildren()) do
+                            if child:IsA("Frame") or child:IsA("GuiObject") then
+                                frame = child
+                                print("        ✅ Frame/GuiObject encontrado:", child.Name)
+                                break
+                            end
+                        end
+                    else
                         print("        ✅ Frame encontrado")
-                        
-                        -- Procura o TextLabel dentro do Frame
+                    end
+                    
+                    if frame then
+                        -- Procura TextLabel de várias formas
                         local textLabel = frame:FindFirstChild("TextLabel")
+                        
+                        -- Se não achar, procura qualquer TextLabel nos descendentes
+                        if not textLabel then
+                            for _, desc in ipairs(frame:GetDescendants()) do
+                                if desc:IsA("TextLabel") then
+                                    textLabel = desc
+                                    print("          ✅ TextLabel encontrado via GetDescendants():", desc.Name)
+                                    break
+                                end
+                            end
+                        else
+                            print("          ✅ TextLabel encontrado")
+                        end
+                        
                         if textLabel then
                             local plotText = textLabel.Text
                             print("          📝 Texto encontrado:", plotText)
                             
-                            -- 🆕 Verifica se começa com "NomeDoJogador's Base"
+                            -- Verifica de múltiplas formas
                             local expectedText = playerNick .. "'s Base"
+                            
+                            -- Comparação exata
                             if plotText == expectedText then
-                                print("✅✅✅ PLOT ENCONTRADO:", plot.Name)
+                                print("✅✅✅ PLOT ENCONTRADO (exato):", plot.Name)
                                 return plot
-                            else
-                                print("          ❌ Texto não corresponde. Esperado:", expectedText)
                             end
+                            
+                            -- Comparação ignorando espaços
+                            if plotText:gsub("%s", "") == expectedText:gsub("%s", "") then
+                                print("✅✅✅ PLOT ENCONTRADO (sem espaços):", plot.Name)
+                                return plot
+                            end
+                            
+                            -- Comparação se contém o nick + 's Base
+                            if plotText:find(playerNick) and plotText:find("'s Base") then
+                                print("✅✅✅ PLOT ENCONTRADO (contém):", plot.Name)
+                                return plot
+                            end
+                            
+                            print("          ❌ Texto não corresponde. Esperado:", expectedText)
                         else
-                            print("        ❌ TextLabel não encontrado")
+                            print("        ❌ TextLabel não encontrado em nenhum método")
                         end
                     else
                         print("      ❌ Frame não encontrado")
@@ -82,7 +146,7 @@ local function findPlayerPlot(plotsFolder)
                     print("    ❌ SurfaceGui não encontrado")
                 end
             else
-                print("    ❌ PlotSign não encontrado ou não é BasePart")
+                print("    ❌ PlotSign não encontrado")
             end
         end
     end
