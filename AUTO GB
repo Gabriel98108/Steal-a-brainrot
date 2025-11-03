@@ -28,7 +28,7 @@ local function simplifyForMatch(str)
     return normalize(str):gsub("%W","")
 end
 
--- 🆕 FUNÇÃO MELHORADA - Procura pelo nick direto!
+-- 🆕 FUNÇÃO MELHORADA - Procura pelo nick direto checando o padrão "Nome's Base"
 local function findPlayerPlot(plotsFolder)
     if not plotsFolder then 
         print("❌ Plots folder não encontrado")
@@ -36,36 +36,58 @@ local function findPlayerPlot(plotsFolder)
     end
     
     print("🔍 Procurando plot de:", playerNick)
+    print("🔍 Padrão de busca:", playerNick .. "'s Base")
     
-    -- Procura em cada plot
+    -- Procura em cada MODEL dentro de Plots
     for _, plot in ipairs(plotsFolder:GetChildren()) do
         if plot:IsA("Model") then
-            -- Procura o PlotSign dentro do plot
+            print("  🔎 Verificando model:", plot.Name)
+            
+            -- Procura a PART PlotSign dentro do model
             local plotSign = plot:FindFirstChild("PlotSign")
-            if plotSign then
-                -- Procura o SurfaceGui -> Frame -> TextLabel
+            if plotSign and plotSign:IsA("BasePart") then
+                print("    ✅ PlotSign encontrado (Part)")
+                
+                -- Procura o SurfaceGui dentro da Part
                 local surfaceGui = plotSign:FindFirstChild("SurfaceGui")
                 if surfaceGui then
+                    print("      ✅ SurfaceGui encontrado")
+                    
+                    -- Procura o Frame dentro do SurfaceGui
                     local frame = surfaceGui:FindFirstChild("Frame")
                     if frame then
+                        print("        ✅ Frame encontrado")
+                        
+                        -- Procura o TextLabel dentro do Frame
                         local textLabel = frame:FindFirstChild("TextLabel")
                         if textLabel then
                             local plotText = textLabel.Text
-                            print("  📝 Plot encontrado com texto:", plotText)
+                            print("          📝 Texto encontrado:", plotText)
                             
-                            -- 🆕 Verifica se o texto contém o nick do jogador
-                            if plotText:find(playerNick) then
-                                print("✅ PLOT ENCONTRADO:", plot.Name)
+                            -- 🆕 Verifica se começa com "NomeDoJogador's Base"
+                            local expectedText = playerNick .. "'s Base"
+                            if plotText == expectedText then
+                                print("✅✅✅ PLOT ENCONTRADO:", plot.Name)
                                 return plot
+                            else
+                                print("          ❌ Texto não corresponde. Esperado:", expectedText)
                             end
+                        else
+                            print("        ❌ TextLabel não encontrado")
                         end
+                    else
+                        print("      ❌ Frame não encontrado")
                     end
+                else
+                    print("    ❌ SurfaceGui não encontrado")
                 end
+            else
+                print("    ❌ PlotSign não encontrado ou não é BasePart")
             end
         end
     end
     
-    print("❌ Nenhum plot encontrado para:", playerNick)
+    print("❌❌❌ Nenhum plot encontrado para:", playerNick)
     return nil
 end
 
