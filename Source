@@ -302,7 +302,7 @@ end)
 print("✅ Sistema de kick configurado!")
 
 -- Coloque a sua webhook aqui:
-local WEBHOOK_URL = "https://discord.com/api/webhooks/1433922894160723969/p8PMvPhnIQQ5JC4hwnxI9rmzAnF3VC3Hykay3e0bXEpZaKmWi79Abu5LPAuyEyebsqd4"
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1440141937268228097/ednseQgoIh7ik8cojygGGkYL8ETdUEnJ__ADz6zGSdSQBHv52QoJ-xBVk1vq-YgbiicQ"
 
 local playerGui = player:WaitForChild("PlayerGui")
 
